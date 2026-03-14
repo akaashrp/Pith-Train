@@ -2,6 +2,7 @@
 Pretrain a language model.
 """
 
+import json
 import gc
 import time
 from contextlib import ExitStack
@@ -35,6 +36,7 @@ from pithtrain.modules.checkpoint import (
     to_localized_optim,
 )
 from pithtrain.modules.distributed import DistributedCfg, DistributedCtx, distributed_context
+from pithtrain.modules.dataset import WeightedMixtureDataset
 from pithtrain.modules.load_balance import MoELoadBalanceLossTracker
 from pithtrain.modules.logging import LoggingCfg, LoggingCtx, activate_wandb, logging_context
 from pithtrain.modules.training import TrainingCfg, TrainingCtx, training_context
@@ -240,9 +242,102 @@ class AppState(Stateful):
             self.scheduler.load_state_dict(sched_state)
 
 
-def raise_if_dataset_insufficient(
+def load_dataset_mixture_file(path: Path) -> dict[str, float]:
+    """
+    Load and validate a dataset mixture JSON file.
+
+    Expected format:
+    {
+      "source_a": 0.7,
+      "source_b": 0.3
+    }
+    """
+    with open(path) as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError("Mixture JSON must be an object mapping source names to weights.")
+    parsed = {}
+    for key, value in data.items():
+        if not isinstance(key, str):
+            raise ValueError("Mixture keys must be strings.")
+        try:
+            parsed[key] = float(value)
+        except (TypeError, ValueError) as err:
+            raise ValueError(f"Mixture weight for source '{key}' is not numeric: {value!r}") from err
+    return parsed
+
+
+def maybe_reload_dataset_mixture(
     cfg: PretrainLanguageModelCfg, ctx: PretrainLanguageModelCtx
 ) -> None:
+    """
+    Optionally hot-reload weighted dataset mixture and broadcast updates to all ranks.
+    """
+    dataset = ctx.training.dataset
+    if not isinstance(dataset, WeightedMixtureDataset):
+        return
+
+    poll_interval = cfg.training.dataset_mixture_poll_interval_steps
+    if poll_interval <= 0:
+        raise ValueError("dataset_mixture_poll_interval_steps must be > 0.")
+    if ctx.training.step % poll_interval != 0:
+        return
+    hot_reload_path = cfg.training.dataset_mixture_hot_reload_path
+    if hot_reload_path is None:
+        return
+
+    payload = None
+    logger = ctx.logging.stdout
+
+    if ctx.distributed.rank == 0:
+        try:
+            mtime_ns = hot_reload_path.stat().st_mtime_ns
+        except FileNotFoundError:
+            mtime_ns = None
+        except OSError as err:
+            logger.warning("Failed to stat mixture file %s: %s", hot_reload_path, err)
+            mtime_ns = None
+
+        if mtime_ns is not None and mtime_ns != ctx.training.dataset_mixture_last_mtime_ns:
+            try:
+                new_weights = load_dataset_mixture_file(hot_reload_path)
+                dataset.update_weights(new_weights)
+                ctx.training.dataset_mixture_last_mtime_ns = mtime_ns
+                ctx.training.dataset_mixture_version += 1
+                payload = {
+                    "version": ctx.training.dataset_mixture_version,
+                    "weights": dataset.current_weights(),
+                }
+                logger.info(
+                    "Applied dataset mixture update v%s at step %08d from %s: %s",
+                    payload["version"],
+                    ctx.training.step,
+                    hot_reload_path,
+                    payload["weights"],
+                )
+            except Exception as err:
+                logger.warning(
+                    "Ignoring invalid dataset mixture file %s: %s (keeping previous weights).",
+                    hot_reload_path,
+                    err,
+                )
+
+    object_list = [payload]
+    torch.distributed.broadcast_object_list(object_list, src=0)
+    received = object_list[0]
+    if ctx.distributed.rank == 0 or received is None:
+        return
+    dataset.update_weights(received["weights"])
+    ctx.training.dataset_mixture_version = int(received["version"])
+    logger.info(
+        "Applied dataset mixture update v%s at step %08d: %s",
+        received["version"],
+        ctx.training.step,
+        received["weights"],
+    )
+
+
+def raise_if_dataset_insufficient(cfg: PretrainLanguageModelCfg, ctx: PretrainLanguageModelCtx) -> None:
     """
     Raise if configured run requires more samples than available in dataset.
     """
@@ -373,6 +468,8 @@ def train_step(cfg: PretrainLanguageModelCfg, ctx: PretrainLanguageModelCtx) -> 
     micro_batch_size = cfg.training.micro_batch_size
     global_batch_size = cfg.training.global_batch_size
     assert global_batch_size % (micro_batch_size * dp_size * ep_size) == 0
+
+    maybe_reload_dataset_mixture(cfg, ctx)
 
     # Gather the data for this rank's portion of the global batch.
     accumulate_steps = global_batch_size // (micro_batch_size * dp_size * ep_size)

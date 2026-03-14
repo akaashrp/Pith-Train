@@ -26,6 +26,20 @@ training.micro_batch_size = 1
 training.global_batch_size = 1024
 training.sequence_length = 2048
 training.dataset = Path("workspace/datasets/dclm-baseline/toktxt/qwen3")
+# Optional weighted multi-source mixture (hot-reload enabled).
+# Set ENABLE_DATA_MIXTURE=True and update paths as needed.
+ENABLE_DATA_MIXTURE = False
+if ENABLE_DATA_MIXTURE:
+    training.dataset_sources = {
+        "dclm": Path("workspace/datasets/dclm-baseline/toktxt/qwen3"),
+        "math": Path("workspace/datasets/math/toktxt/qwen3"),
+        "code": Path("workspace/datasets/code/toktxt/qwen3"),
+    }
+    training.dataset_mixture = {"dclm": 0.30, "math": 0.10, "code": 0.60}
+    training.dataset_mixture_hot_reload_path = Path(
+        "examples/pretrain_language_model/qwen3-30b-a3b/mixture.sample.json"
+    )
+    training.dataset_mixture_poll_interval_steps = 1
 training.moe_load_balance_type = "global-batch"
 training.moe_load_balance_coef = 1e-3
 training.fp8_training = "disabled"
