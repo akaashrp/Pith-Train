@@ -22,6 +22,21 @@ bash examples/pretrain_language_model/launch.sh deepseek-v2-lite
 
 The launch script auto-detects available GPUs and works with both single-node and multi-node (SLURM) setups.
 
+### Optional: SonicMoE backend (BF16 only)
+
+Install the optional dependency:
+
+```bash
+uv sync --extra sonic
+```
+
+Then set the following in your model `script.py`:
+
+```python
+training.fp8_training = "disabled"
+training.moe_backend = "sonic-moe"
+```
+
 ## Available Models
 
 | Model | Default Parallelism |

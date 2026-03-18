@@ -13,6 +13,11 @@ dependencies = [
     "zstandard",
 ]
 
+[project.optional-dependencies]
+sonic = [
+    "sonic-moe",
+]
+
 [dependency-groups]
 dev = ["pre-commit", "pytest", "ruff"]
 

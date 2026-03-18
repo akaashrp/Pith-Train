@@ -136,6 +136,15 @@ class TrainingCfg(SlottedDefault):
     block scaling via DeepGEMM). Supports SM90 (Hopper) and SM100+ (Blackwell).
     """
 
+    moe_backend: Literal["dualpipe", "sonic-moe"] = "dualpipe"
+    """
+    Grouped-GEMM backend for MoE experts.
+
+    * ``"dualpipe"`` — Existing grouped-mm path.
+    * ``"sonic-moe"`` — SonicMoE grouped GEMM via ``sonicmoe.functional.gemm``.
+      This backend requires ``fp8_training="disabled"``.
+    """
+
     init_std: float = 0.02
     """
     Standard deviation for weight initialization.
@@ -268,11 +277,28 @@ def apply_fsdp(model, mesh: torch.distributed.DeviceMesh):
     return model
 
 
+def validate_backend_selection(cfg: TrainingCfg) -> None:
+    if cfg.moe_backend == "sonic-moe":
+        if cfg.fp8_training != "disabled":
+            raise ValueError(
+                "moe_backend='sonic-moe' only supports fp8_training='disabled' in this release."
+            )
+        from pithtrain.layers.sonic_moe_group_linear import ensure_sonicmoe_available
+
+        ensure_sonicmoe_available()
+    elif cfg.moe_backend != "dualpipe":
+        raise ValueError(
+            f"Invalid moe_backend={cfg.moe_backend!r}. Expected one of: 'dualpipe', 'sonic-moe'."
+        )
+
+
 def setup_model(cfg: TrainingCfg, ctx: TrainingCtx, distributed: DistributedCtx) -> None:
     from pithtrain.dualpipe.utils import FP8WeightCacheControl
     from pithtrain.layers.factory import ModelImplMode
 
+    validate_backend_selection(cfg)
     ModelImplMode.fp8_training = cfg.fp8_training
+    ModelImplMode.moe_backend = cfg.moe_backend
     if cfg.fp8_training != "disabled":
         FP8WeightCacheControl.enabled = True
 
