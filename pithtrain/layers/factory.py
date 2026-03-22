@@ -11,7 +11,7 @@ class ModelImplMode:
 
     use_reference_fwd = False
     fp8_training: Literal["deep-gemm", "disabled"] = "disabled"
-    moe_backend: Literal["dualpipe", "sonic-moe"] = "dualpipe"
+    moe_backend: Literal["pithtrain", "sonic-moe"] = "pithtrain"
 
 
 def get_linear_cls():

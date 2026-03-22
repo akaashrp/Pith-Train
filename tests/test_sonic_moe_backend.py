@@ -1,24 +1,19 @@
-import importlib.util
 import sys
 import types
 
 import pytest
 import torch
 
-HAS_TRITON = importlib.util.find_spec("triton") is not None
-pytestmark = pytest.mark.skipif(not HAS_TRITON, reason="triton is not installed")
-
-if HAS_TRITON:
-    from pithtrain.layers.factory import ModelImplMode, get_group_linear_cls
-    from pithtrain.layers.group_linear import GroupLinear
-    from pithtrain.layers.sonic_moe_group_linear import (
-        SonicMoEGroupLinear,
-        _reset_sonicmoe_cache_for_testing,
-    )
-    from pithtrain.modules.training import TrainingCfg, validate_backend_selection
+from pithtrain.layers.factory import ModelImplMode, get_group_linear_cls
+from pithtrain.layers.group_linear import GroupLinear
+from pithtrain.layers.sonic_moe_group_linear import (
+    SonicMoEGroupLinear,
+    _reset_sonicmoe_cache_for_testing,
+)
+from pithtrain.modules.training import TrainingCfg, validate_backend_selection
 
 
-def _build_fake_sonicmoe_module() -> types.ModuleType:
+def _install_fake_sonicmoe(monkeypatch: pytest.MonkeyPatch) -> None:
     mod = types.ModuleType("sonicmoe")
     functional = types.ModuleType("sonicmoe.functional")
 
@@ -40,15 +35,16 @@ def _build_fake_sonicmoe_module() -> types.ModuleType:
 
     functional.gemm = gemm
     mod.functional = functional
-    return mod
+    monkeypatch.setitem(sys.modules, "sonicmoe", mod)
+    monkeypatch.setitem(sys.modules, "sonicmoe.functional", functional)
 
 
-def test_factory_functions_bf16_dualpipe_mode():
+def test_factory_functions_bf16_pithtrain_mode():
     prev_fp8 = ModelImplMode.fp8_training
     prev_moe = ModelImplMode.moe_backend
     try:
         ModelImplMode.fp8_training = "disabled"
-        ModelImplMode.moe_backend = "dualpipe"
+        ModelImplMode.moe_backend = "pithtrain"
         assert get_group_linear_cls() is GroupLinear
     finally:
         ModelImplMode.fp8_training = prev_fp8
@@ -56,7 +52,7 @@ def test_factory_functions_bf16_dualpipe_mode():
 
 
 def test_factory_functions_sonic_mode(monkeypatch):
-    monkeypatch.setitem(sys.modules, "sonicmoe", _build_fake_sonicmoe_module())
+    _install_fake_sonicmoe(monkeypatch)
     _reset_sonicmoe_cache_for_testing()
 
     prev_fp8 = ModelImplMode.fp8_training
@@ -73,7 +69,7 @@ def test_factory_functions_sonic_mode(monkeypatch):
 
 def test_sonic_group_linear_forward_and_empty_input(monkeypatch):
     torch.manual_seed(0)
-    monkeypatch.setitem(sys.modules, "sonicmoe", _build_fake_sonicmoe_module())
+    _install_fake_sonicmoe(monkeypatch)
     _reset_sonicmoe_cache_for_testing()
 
     layer = SonicMoEGroupLinear(3, 4, 5)

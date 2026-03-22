@@ -136,11 +136,11 @@ class TrainingCfg(SlottedDefault):
     block scaling via DeepGEMM). Supports SM90 (Hopper) and SM100+ (Blackwell).
     """
 
-    moe_backend: Literal["dualpipe", "sonic-moe"] = "dualpipe"
+    moe_backend: Literal["pithtrain", "sonic-moe"] = "pithtrain"
     """
     Grouped-GEMM backend for MoE experts.
 
-    * ``"dualpipe"`` — Existing grouped-mm path.
+    * ``"pithtrain"`` — Existing grouped-mm path.
     * ``"sonic-moe"`` — SonicMoE grouped GEMM via ``sonicmoe.functional.gemm``.
       This backend requires ``fp8_training="disabled"``.
     """
@@ -286,9 +286,9 @@ def validate_backend_selection(cfg: TrainingCfg) -> None:
         from pithtrain.layers.sonic_moe_group_linear import ensure_sonicmoe_available
 
         ensure_sonicmoe_available()
-    elif cfg.moe_backend != "dualpipe":
+    elif cfg.moe_backend != "pithtrain":
         raise ValueError(
-            f"Invalid moe_backend={cfg.moe_backend!r}. Expected one of: 'dualpipe', 'sonic-moe'."
+            f"Invalid moe_backend={cfg.moe_backend!r}. Expected one of: 'pithtrain', 'sonic-moe'."
         )
 
 

@@ -19,23 +19,13 @@ def _make_import_error(detail: str) -> ImportError:
 
 def _load_sonic_gemm() -> Callable[..., torch.Tensor]:
     global _SONIC_GEMM
-    if _SONIC_GEMM is not None:
-        return _SONIC_GEMM
-
-    try:
-        sonicmoe = importlib.import_module("sonicmoe")
-    except ImportError as exc:
-        raise _make_import_error("failed to import module 'sonicmoe'") from exc
-
-    functional = getattr(sonicmoe, "functional", None)
-    if functional is None:
-        raise _make_import_error("module 'sonicmoe' does not expose 'functional'")
-
-    gemm = getattr(functional, "gemm", None)
+    gemm = _SONIC_GEMM
     if gemm is None:
-        raise _make_import_error("module 'sonicmoe.functional' does not expose 'gemm'")
-
-    _SONIC_GEMM = gemm
+        try:
+            gemm = importlib.import_module("sonicmoe.functional").gemm
+        except ImportError as exc:
+            raise _make_import_error("failed to import module 'sonicmoe.functional'") from exc
+        _SONIC_GEMM = gemm
     return gemm
 
 
@@ -86,13 +76,9 @@ class SonicMoEGroupLinear(nn.Module):
 
         cu_seqlens_m = _make_cu_seqlens(grouped_mm_offs, self.num_groups, input.device)
         weight_kt = self.weight.transpose(1, 2)
-        try:
-            return self._gemm(
-                input,
-                weight_kt,
-                cu_seqlens_m=cu_seqlens_m,
-                dynamic_scheduler=False,
-            )
-        except TypeError:
-            # Compatibility fallback for SonicMoE versions with a narrower gemm signature.
-            return self._gemm(input, weight_kt, cu_seqlens_m=cu_seqlens_m)
+        return self._gemm(
+            input,
+            weight_kt,
+            cu_seqlens_m=cu_seqlens_m,
+            dynamic_scheduler=False,
+        )
