@@ -2,9 +2,9 @@
 FP8 linear layer (DeepGEMM) and the shared FP8 GEMM recipe.
 
 ``FP8Linear`` is a drop-in ``nn.Linear`` replacement backed by DeepGEMM's Float8 E4M3 GEMM with
-per-block (128-element) scales -- E8M0 power-of-2 scales on Blackwell (SM100+), FP32 scales on
-Hopper (SM90). ``fp8_act_weight_gemm`` / ``fp8_dgrad_wgrad`` own the forward/backward GEMM
-convention and are shared with the MLA pass-latent ring attention.
+per-block (128-element) E8M0 power-of-2 scales -- native (MXFP8 PTX) on Blackwell (SM100+) and
+emulated on Hopper (SM90). ``fp8_act_weight_gemm`` / ``fp8_dgrad_wgrad`` own the forward/backward
+GEMM convention and are shared with the MLA pass-latent ring attention.
 """
 
 from typing import Tuple
@@ -15,9 +15,9 @@ import torch.nn as nn
 
 from pithtrain.dualpipe.utils import FP8WeightCacheControl
 from pithtrain.operators.deepgemm_quantize import (
-    fused_blockwise_transpose_cast_to_fp8,
-    fused_rowwise_blockwise_transpose_cast_to_fp8,
-    fused_rowwise_transpose_cast_to_fp8,
+    fp8cast_blockwise_transpose,
+    fp8cast_rowwise_blockwise_transpose,
+    fp8cast_rowwise_transpose,
 )
 
 ARCH_MAJOR, _ = torch.cuda.get_device_capability()
@@ -51,8 +51,8 @@ def fp8_act_weight_gemm(
     so a later wgrad can reuse it. Shared by ``_fp8_linear_fwd`` and the MLA ring so the recipe
     has one source of truth."""
     m, n = input_2d.shape[0], weight_fp8.shape[0]
-    input_fp8, scale_input, input_t_fp8, scale_input_t = (
-        fused_rowwise_blockwise_transpose_cast_to_fp8(input_2d)
+    input_fp8, scale_input, input_t_fp8, scale_input_t = fp8cast_rowwise_blockwise_transpose(
+        input_2d
     )
     output = _fp8_gemm_nt(
         input_fp8, scale_input, weight_fp8, scale_weight, m, n, input_2d.device, input_2d.dtype
@@ -73,7 +73,7 @@ def fp8_dgrad_wgrad(
     dtype. Shared by ``_fp8_linear_bwd`` and the MLA ring so dgrad/wgrad have one source of
     truth; the caller supplies ``input_t_fp8`` (saved from the forward, or recomputed)."""
     m, n = grad_2d.shape
-    grad_fp8, scale_grad, grad_t_fp8, scale_grad_t = fused_rowwise_transpose_cast_to_fp8(grad_2d)
+    grad_fp8, scale_grad, grad_t_fp8, scale_grad_t = fp8cast_rowwise_transpose(grad_2d)
     grad_input = _fp8_gemm_nt(
         grad_fp8, scale_grad, weight_t_fp8, scale_weight_t, m, k, grad_2d.device, grad_2d.dtype
     )
@@ -184,11 +184,11 @@ class FP8Linear(nn.Linear):
         self,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         if torch.compiler.is_compiling():
-            return fused_blockwise_transpose_cast_to_fp8(self.weight)
+            return fp8cast_blockwise_transpose(self.weight)
         ver = FP8WeightCacheControl.version
         if self._wq_version == ver:
             return self._wq_cache
-        result = fused_blockwise_transpose_cast_to_fp8(self.weight)
+        result = fp8cast_blockwise_transpose(self.weight)
         self._wq_cache = result
         self._wq_version = ver
         return result
