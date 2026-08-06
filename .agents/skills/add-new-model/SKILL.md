@@ -84,7 +84,7 @@ Record in a scratch doc (not a committed file): class names, attribute names, ex
    - Model (forward via `record_forward`, posemb / prolog / epilog, reference_forward)
 3. Checklist for the decoder layer:
    - [ ] `self.idx = layer_id` and `self.mlp` assigned (satisfies `LayerProtocol` in `pithtrain/models/interface.py`)
-   - [ ] EP sizing read from the `distributed` context (`distributed.ep_size` / `distributed.ep_group`), with the local expert count on `self.mlp.experts_per_rank`
+   - [ ] EP metadata read from the `distributed` context, with `self.mlp.ep_rank = distributed.ep_rank` and the local expert count on `self.mlp.experts_per_rank`
    - [ ] `@torch.compile(fullgraph=True)` on `forward_stage1_compute` and `forward_stage5`
    - [ ] Shared experts (if any) fold into residual at the end of `forward_stage1_compute`, *before* the return
    - [ ] `reference_forward` runs eager (no compile) and is numerically equivalent to `forward_stage1 -> forward_stage3 -> forward_stage5`
