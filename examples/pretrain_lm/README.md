@@ -9,11 +9,12 @@ Tokenize the training corpus (one-time step):
 ```bash
 bash examples/tokenize_corpus/launch.sh dclm-qwen3
 bash examples/tokenize_corpus/launch.sh dclm-deepseek-v2
-bash examples/tokenize_corpus/launch.sh nemotron-cc-v1-qwen3
 bash examples/tokenize_corpus/launch.sh nemotron-cc-v2-qwen3
 ```
 
 See [tokenize_corpus](../tokenize_corpus/) for details.
+
+To use Nemotron-CC v2, set `cfg.dataset` in the model script to `workspace/datasets/nemotron-cc-v2/toktxt/<tokenizer>`.
 
 ## Step 2: Launch Training
 
@@ -32,12 +33,6 @@ The launch script auto-detects available GPUs and works with both single-node an
 | [DeepSeek-V2-Lite](https://huggingface.co/deepseek-ai/DeepSeek-V2-Lite) | 2-way pipeline x 2-way expert |
 
 Remaining GPUs are used as data-parallel (FSDP) ranks. Each model directory contains a `script.py` (training hyperparameters) and a `config.json` (model architecture). Edit `script.py` to customize.
-
-## Data Mixtures
-
-Set `cfg.dataset_sources` and `cfg.dataset_mixture` on `PretrainLMCfg` to sample named tokenized roots with explicit weights. `cfg.dataset` remains the size-proportional single-root path.
-
-For Nemotron-CC size-proportional training, point the existing model script at `workspace/datasets/nemotron-cc-v1/toktxt/<tokenizer>` or `workspace/datasets/nemotron-cc-v2/toktxt/<tokenizer>`.
 
 ## Output
 

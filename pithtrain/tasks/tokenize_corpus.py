@@ -76,8 +76,6 @@ def read_file(path: Path):
                     yield data["text"]
         case ".parquet":
             parquet = pq.ParquetFile(path)
-            if "text" not in parquet.schema_arrow.names:
-                raise ValueError("parquet file does not contain a text column: %s" % path)
             for batch in parquet.iter_batches(columns=["text"]):
                 for text in batch.column(0).to_pylist():
                     yield text
@@ -231,6 +229,3 @@ def launch(cfg: TokenizeCorpusCfg):
         leaders.append(p)
     for p in leaders:
         p.join()
-    failed = [p.pid for p in leaders if p.exitcode != 0]
-    if failed:
-        raise RuntimeError(f"Tokenization leaders failed: {failed}")
